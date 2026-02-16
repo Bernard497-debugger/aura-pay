@@ -1,15 +1,14 @@
 import os
-import uuid
 import requests
 from datetime import datetime, timedelta
 from flask import Flask, render_template_string, jsonify, request
 
 app = Flask(__name__)
 
-# 🛡️ CREDENTIALS (Set these in Render's Environment tab)
+# 🛡️ LIVE CREDENTIALS
 PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID')
 PAYPAL_SECRET = os.environ.get('PAYPAL_SECRET')
-ENV = os.environ.get('PAYPAL_ENV', 'sandbox') 
+ENV = os.environ.get('PAYPAL_ENV', 'live') 
 PAYPAL_BASE_URL = 'https://api-m.paypal.com' if ENV == 'live' else 'https://api-m.sandbox.paypal.com'
 
 def get_access_token():
@@ -24,37 +23,38 @@ def get_access_token():
     except Exception:
         return None
 
-def get_real_data():
-    """Fetches both Balance and Transaction History from PayPal."""
+def get_app_data():
     token = get_access_token()
+    if not token: return "0.00", [], 0.0
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     
-    # 1. Fetch Balance
     balance = "0.00"
+    total_revenue = 0.0
+    history = []
+    
     try:
+        # Fetch Balance
         b_res = requests.get(f"{PAYPAL_BASE_URL}/v1/reporting/balances?currency_code=USD", headers=headers, timeout=10)
         balance = b_res.json()['balances'][0]['total_balance']['value']
-    except: pass
-
-    # 2. Fetch Transactions (Last 30 days)
-    start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
-    end_date = datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')
-    history = []
-    try:
+        
+        # Fetch Transactions (30 Days)
+        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
         t_res = requests.get(
-            f"{PAYPAL_BASE_URL}/v1/reporting/transactions?start_date={start_date}&end_date={end_date}&fields=transaction_info", 
+            f"{PAYPAL_BASE_URL}/v1/reporting/transactions?start_date={start_date}&end_date={datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')}&fields=transaction_info", 
             headers=headers, timeout=10
         )
         for tx in t_res.json().get('transaction_details', []):
             info = tx.get('transaction_info', {})
-            history.append({
-                "type": info.get('transaction_event_code', 'Payment'),
-                "amount": float(info.get('transaction_amount', {}).get('value', 0)),
-                "date": info.get('transaction_initiation_date', '')[:10]
-            })
+            val = float(info.get('transaction_amount', {}).get('value', 0))
+            if val > 0:
+                total_revenue += val
+                history.append({
+                    "type": "Incoming",
+                    "amount": val,
+                    "date": info.get('transaction_initiation_date', '')[:10]
+                })
     except: pass
-
-    return balance, history
+    return balance, history, total_revenue
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -62,85 +62,130 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GlassBank Pro</title>
-    <script src="https://www.paypal.com/sdk/js?client-id={{ client_id }}&currency=USD"></script>
+    <title>AuraPay | Personal Terminal</title>
+    <script src="https://www.paypal.com/sdk/js?client-id={{ client_id }}&currency=USD&components=buttons,card-fields"></script>
     <style>
-        body { margin: 0; background: #050505; font-family: 'Inter', sans-serif; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .app-container { width: 90%; max-width: 400px; padding: 35px; border-radius: 40px; background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .balance-amount { font-size: 3rem; font-weight: 800; margin: 10px 0 30px 0; background: linear-gradient(to right, #fff, #4facfe); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 25px; }
-        .tab-btn { flex: 1; padding: 12px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: white; cursor: pointer; }
-        .tab-btn.active { background: white; color: black; font-weight: bold; }
-        .action-card { background: rgba(255, 255, 255, 0.05); padding: 20px; border-radius: 25px; display: none; margin-bottom: 20px;}
-        .action-card.active { display: block; }
-        input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; color: white; padding: 15px; margin-bottom: 15px; box-sizing: border-box; }
-        .send-btn { width: 100%; padding: 16px; border-radius: 15px; border: none; background: #4facfe; color: white; font-weight: bold; cursor: pointer; }
-        .history-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
+        :root { --accent: #4facfe; --bg: #050505; --glass: rgba(255, 255, 255, 0.03); }
+        body { margin: 0; background: var(--bg); font-family: 'Inter', sans-serif; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow-x: hidden; }
+        .app-container { width: 92%; max-width: 420px; padding: 30px; border-radius: 40px; background: var(--glass); backdrop-filter: blur(50px); border: 1px solid rgba(255, 255, 255, 0.1); position: relative; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .logo { font-weight: 900; font-size: 20px; background: linear-gradient(45deg, #fff, var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .share-btn { background: var(--glass); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px 15px; border-radius: 12px; font-size: 12px; cursor: pointer; }
+        
+        .balance-card { text-align: center; margin-bottom: 30px; }
+        .balance-amount { font-size: 3.8rem; font-weight: 800; margin: 0; letter-spacing: -2px; }
+        .revenue-badge { display: inline-block; padding: 4px 12px; background: rgba(0, 255, 136, 0.1); color: #00ff88; border-radius: 20px; font-size: 11px; font-weight: 700; margin-top: 10px; }
+
+        .tabs { display: flex; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 20px; margin-bottom: 25px; }
+        .tab-btn { flex: 1; padding: 12px; border-radius: 16px; border: none; background: transparent; color: white; opacity: 0.5; cursor: pointer; transition: 0.3s; }
+        .tab-btn.active { background: rgba(255,255,255,0.1); opacity: 1; font-weight: 700; }
+
+        input { width: 100%; background: transparent; border: none; color: white; font-size: 2.5rem; font-weight: 800; text-align: center; margin-bottom: 20px; outline: none; }
+        .card-field { height: 55px; padding: 15px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; margin-bottom: 10px; box-sizing: border-box; }
+        .action-sec { display: none; }
+        .action-sec.active { display: block; animation: scaleUp 0.3s ease; }
+
+        .submit-btn { width: 100%; padding: 20px; border-radius: 18px; border: none; background: white; color: black; font-weight: 800; cursor: pointer; font-size: 16px; margin-top: 15px; }
+        
+        .history { margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 14px; }
+
+        /* Success Overlay */
+        #success-overlay { display: none; position: absolute; inset: 0; background: #000; border-radius: 40px; z-index: 100; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; }
+        .check-icon { width: 80px; height: 80px; background: #00ff88; color: black; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; margin-bottom: 20px; }
+
+        @keyframes scaleUp { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
     </style>
 </head>
 <body>
     <div class="app-container">
-        <div style="text-align:center; opacity:0.5; font-size:12px; letter-spacing:1px;">AVAILABLE BALANCE <button onclick="location.reload()" style="background:none; border:none; color:white; cursor:pointer;">🔄</button></div>
-        <div class="balance-amount">${{ balance }}</div>
-
-        <div class="tabs">
-            <button class="tab-btn active" onclick="showTab('deposit')">Deposit</button>
-            <button class="tab-btn" onclick="showTab('send')">Send</button>
+        <div id="success-overlay">
+            <div class="check-icon">✓</div>
+            <h2>Payment Received</h2>
+            <p style="opacity: 0.6;">The funds have been settled into your account.</p>
+            <button class="submit-btn" onclick="location.reload()">Done</button>
         </div>
 
-        <div id="deposit-tab" class="action-card active">
-            <input type="number" id="dep-amt" value="50">
+        <div class="header">
+            <div class="logo">AuraPay</div>
+            <button class="share-btn" onclick="copyLink()">Share Link</button>
+        </div>
+
+        <div class="balance-card">
+            <div style="opacity: 0.4; font-size: 11px; letter-spacing: 1px;">AVAILABLE BALANCE</div>
+            <div class="balance-amount">${{ balance }}</div>
+            <div class="revenue-badge">Total Revenue: ${{ "%.2f"|format(total_revenue) }}</div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('dep', this)">Wallet</button>
+            <button class="tab-btn" onclick="switchTab('rec', this)">Terminal</button>
+        </div>
+
+        <div style="text-align: center; opacity: 0.4; font-size: 12px; margin-bottom: 5px;">Amount (USD)</div>
+        <input type="number" id="main-amt" value="20.00" step="0.01">
+
+        <div id="dep-sec" class="action-sec active">
             <div id="paypal-button-container"></div>
         </div>
 
-        <div id="send-tab" class="action-card">
-            <input type="email" id="send-email" placeholder="Recipient Email">
-            <input type="number" id="send-amt" placeholder="Amount">
-            <button class="send-btn" onclick="handleSend()">Confirm Payout</button>
+        <div id="rec-sec" class="action-sec">
+            <div id="card-number-field" class="card-field"></div>
+            <div style="display: flex; gap: 10px;">
+                <div id="card-expiry-field" class="card-field" style="flex: 2;"></div>
+                <div id="card-cvv-field" class="card-field" style="flex: 1;"></div>
+            </div>
+            <button id="card-btn" class="submit-btn">Complete Payment</button>
         </div>
 
-        <h4 style="opacity:0.6; margin-top:20px;">Recent Activity</h4>
-        {% for item in history %}
-        <div class="history-item">
-            <span>{{ item.type }} <br><small style="opacity:0.5">{{ item.date }}</small></span>
-            <span style="color: {{ '#00ff88' if item.amount > 0 else '#ff4f4f' }}">
-                {{ "+" if item.amount > 0 }}{{ "%.2f"|format(item.amount) }}
-            </span>
+        <div class="history">
+            <div style="font-size: 11px; opacity: 0.3; margin-bottom: 15px;">RECENT LOGS</div>
+            {% for item in history[:5] %}
+            <div class="history-item">
+                <span>{{ item.type }}<br><small style="opacity:0.4">{{ item.date }}</small></span>
+                <span style="font-weight: 800; color: #00ff88;">+${{ "%.2f"|format(item.amount) }}</span>
+            </div>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
 
     <script>
-        function showTab(type) {
-            document.querySelectorAll('.action-card, .tab-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById(type + '-tab').classList.add('active');
-            event.currentTarget.classList.add('active');
+        function switchTab(t, b) {
+            document.querySelectorAll('.action-sec, .tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(t + '-sec').classList.add('active');
+            b.classList.add('active');
         }
 
-        paypal.Buttons({
-            createOrder: function() {
-                const amt = document.getElementById('dep-amt').value;
-                return fetch('/create-order', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ amount: amt })
-                }).then(res => res.json()).then(data => data.id);
-            },
-            onApprove: function(data) {
-                return fetch('/confirm-tx/' + data.orderID, { method: 'POST' }).then(() => location.reload());
-            }
-        }).render('#paypal-button-container');
+        function copyLink() {
+            navigator.clipboard.writeText(window.location.href);
+            alert("Link copied! Send it to anyone who needs to pay you.");
+        }
 
-        async function handleSend() {
-            const email = document.getElementById('send-email').value;
-            const amt = document.getElementById('send-amt').value;
-            const res = await fetch('/payout', {
+        const createOrder = () => {
+            return fetch('/create-order', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email: email, amount: amt })
-            });
-            if((await res.json()).success) { alert('Sent!'); location.reload(); }
-            else { alert('Failed. Check Payouts permissions.'); }
+                body: JSON.stringify({ amount: document.getElementById('main-amt').value })
+            }).then(res => res.json()).then(data => data.id);
+        };
+
+        const onApprove = (data) => {
+            return fetch('/confirm-tx/' + data.orderID, { method: 'POST' })
+                .then(res => res.json())
+                .then(d => { if(d.success) document.getElementById('success-overlay').style.display = 'flex'; });
+        };
+
+        // Initialize PayPal
+        paypal.Buttons({ createOrder, onApprove }).render('#paypal-button-container');
+        
+        const cardFields = paypal.CardFields({ createOrder, onApprove });
+        if (cardFields.isEligible()) {
+            const style = { input: { color: 'white', 'font-size': '16px' } };
+            cardFields.NumberField({style}).render('#card-number-field');
+            cardFields.ExpiryField({style}).render('#card-expiry-field');
+            cardFields.CVVField({style}).render('#card-cvv-field');
+            document.getElementById('card-btn').addEventListener('click', () => cardFields.submit());
         }
     </script>
 </body>
@@ -149,32 +194,22 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    balance, history = get_real_data()
-    return render_template_string(HTML_TEMPLATE, client_id=PAYPAL_CLIENT_ID, balance=balance, history=history)
+    balance, history, total_revenue = get_app_data()
+    return render_template_string(HTML_TEMPLATE, client_id=PAYPAL_CLIENT_ID, balance=balance, history=history, total_revenue=total_revenue)
 
 @app.route('/create-order', methods=['POST'])
 def create_order():
     token = get_access_token()
+    amt = "{:.2f}".format(float(request.json.get('amount', 0)))
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {"intent": "CAPTURE", "purchase_units": [{"amount": {"currency_code": "USD", "value": request.json.get('amount')}}]}
+    payload = {"intent": "CAPTURE", "purchase_units": [{"amount": {"currency_code": "USD", "value": amt}}]}
     r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders", json=payload, headers=headers)
     return jsonify(r.json())
 
 @app.route('/confirm-tx/<order_id>', methods=['POST'])
 def confirm_tx(order_id):
     token = get_access_token()
-    requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders/{order_id}/capture", headers={"Authorization": f"Bearer {token}"})
-    return jsonify({"success": True})
-
-@app.route('/payout', methods=['POST'])
-def payout():
-    token = get_access_token()
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {
-        "sender_batch_header": {"sender_batch_id": str(uuid.uuid4())},
-        "items": [{"recipient_type": "EMAIL", "amount": {"value": str(request.json.get('amount')), "currency": "USD"}, "receiver": request.json.get('email')}]
-    }
-    r = requests.post(f"{PAYPAL_BASE_URL}/v1/payments/payouts", json=payload, headers=headers)
+    r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders/{order_id}/capture", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     return jsonify({"success": r.status_code in [200, 201]})
 
 if __name__ == '__main__':
