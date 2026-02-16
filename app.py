@@ -4,12 +4,11 @@ from flask import Flask, render_template_string, jsonify, request
 
 app = Flask(__name__)
 
-# CONFIG - Pydroid/Render environment
-# If testing locally on Pydroid, you might need to hardcode these 
-# but for Render, keep the os.environ.get lines.
-PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID', 'PASTE_YOUR_ID_HERE_IF_TESTING_ON_PHONE')
-PAYPAL_SECRET = os.environ.get('PAYPAL_SECRET', 'PASTE_YOUR_SECRET_HERE_IF_TESTING_ON_PHONE')
-PAYPAL_BASE_URL = 'https://api-m.paypal.com' # Use live for real testing
+# CONFIG
+PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID')
+PAYPAL_SECRET = os.environ.get('PAYPAL_SECRET')
+# Set this to https://api-m.paypal.com for real money
+PAYPAL_BASE_URL = 'https://api-m.paypal.com' 
 
 def get_access_token():
     try:
@@ -28,43 +27,47 @@ HTML_TEMPLATE = """
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AuraPay Mobile</title>
+    <title>AuraPay | Secure Terminal</title>
     <script src="https://www.paypal.com/sdk/js?client-id={{ client_id }}&currency=USD"></script>
     <style>
-        body { background: #050505; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        .container { width: 90%; max-width: 400px; margin: auto; padding: 20px; border: 1px solid #333; border-radius: 20px; }
-        input { width: 80%; padding: 15px; margin: 20px 0; background: #111; border: 1px solid #4facfe; color: white; border-radius: 10px; font-size: 20px; text-align: center; }
-        #paypal-button-container { margin-top: 20px; }
+        :root { --accent: #4facfe; --bg: #050505; }
+        body { background: var(--bg); color: white; font-family: -apple-system, sans-serif; text-align: center; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .container { width: 90%; max-width: 400px; padding: 30px; border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; background: rgba(255,255,255,0.02); backdrop-filter: blur(10px); }
+        .logo { font-weight: 900; font-size: 24px; color: var(--accent); margin-bottom: 5px; }
+        .recipient-box { background: rgba(79, 172, 254, 0.1); padding: 10px; border-radius: 15px; margin-bottom: 25px; font-size: 13px; color: var(--accent); border: 1px solid rgba(79, 172, 254, 0.2); }
+        input { width: 100%; background: transparent; border: none; color: white; font-size: 3rem; font-weight: 800; text-align: center; outline: none; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        label { font-size: 11px; opacity: 0.5; letter-spacing: 1px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2 style="color:#4facfe">AuraPay</h2>
-        <p style="font-size: 12px; opacity: 0.5;">Mobile Terminal</p>
-        <input type="number" id="amt" value="10.00">
+        <div class="logo">AuraPay</div>
+        
+        <div class="recipient-box">
+            Recipient: <strong>{{ payee_email }}</strong>
+        </div>
+
+        <label>AMOUNT TO SEND (USD)</label>
+        <input type="number" id="amt" value="10.00" step="0.01">
+        
         <div id="paypal-button-container"></div>
     </div>
 
     <script>
         paypal.Buttons({
-            createOrder: function(data, actions) {
-                return fetch('/create-order', {
+            createOrder: function() {
+                // We send the 'to' email from the URL to our backend
+                return fetch('/create-order?to={{ payee_email }}', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ amount: document.getElementById('amt').value })
-                }).then(res => {
-                    if (!res.ok) throw new Error('Network response was not ok');
-                    return res.json();
-                }).then(order => order.id);
+                }).then(res => res.json()).then(order => order.id);
             },
-            onApprove: function(data, actions) {
+            onApprove: function(data) {
                 return fetch('/confirm-tx/' + data.orderID, { method: 'POST' })
                     .then(res => res.json()).then(result => {
-                        if(result.success) alert("Paid!");
+                        if(result.success) alert("Payment Sent Successfully to {{ payee_email }}");
                     });
-            },
-            onError: function(err) {
-                alert("PAYPAL ERROR: Check your Client ID and Secret in Render settings.");
             }
         }).render('#paypal-button-container');
     </script>
@@ -74,19 +77,26 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, client_id=PAYPAL_CLIENT_ID)
+    # If someone goes to yoursite.com/?to=bob@gmail.com, bob gets paid.
+    # If they just go to yoursite.com, it uses YOUR email as fallback.
+    payee_email = request.args.get('to', 'YOUR_OWN_PAYPAL_EMAIL@GMAIL.COM')
+    return render_template_string(HTML_TEMPLATE, client_id=PAYPAL_CLIENT_ID, payee_email=payee_email)
 
 @app.route('/create-order', methods=['POST'])
 def create_order():
     token = get_access_token()
-    if not token:
-        return jsonify({"error": "Auth failed"}), 401
-    
+    payee_email = request.args.get('to')
     amount = request.json.get('amount', '10.00')
+    
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    
+    # The 'payee' block is what makes it multi-user
     payload = {
         "intent": "CAPTURE",
-        "purchase_units": [{"amount": {"currency_code": "USD", "value": amount}}]
+        "purchase_units": [{
+            "amount": {"currency_code": "USD", "value": amount},
+            "payee": {"email_address": payee_email}
+        }]
     }
     
     r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders", json=payload, headers=headers)
