@@ -6,7 +6,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# --- CONFIG ---
+# --- CONFIGURATION ---
+# These should be your "Live" credentials from the auto-created PayPal app
 PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID')
 PAYPAL_SECRET = os.environ.get('PAYPAL_SECRET')
 PAYPAL_BASE_URL = 'https://api-m.paypal.com' 
@@ -24,107 +25,80 @@ def get_access_token():
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AuraStore | Retail Terminal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AuraPay | Public Platform</title>
     <script src="https://www.paypal.com/sdk/js?client-id={{ client_id }}&currency=USD"></script>
     <style>
-        :root { --accent: #00ff88; --bg: #0a0a0a; --card: #1a1a1a; }
-        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; padding: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .logo { font-weight: 900; font-size: 24px; color: var(--accent); }
-        
-        /* Product Grid */
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-width: 600px; margin: 0 auto; }
-        .product-card { background: var(--card); border-radius: 20px; padding: 15px; text-align: center; border: 1px solid #333; }
-        .product-card img { width: 100%; border-radius: 10px; margin-bottom: 10px; }
-        .price { color: var(--accent); font-weight: bold; font-size: 1.2rem; display: block; margin: 5px 0; }
-        
-        .buy-btn { background: var(--accent); color: black; border: none; padding: 10px; width: 100%; border-radius: 10px; font-weight: bold; cursor: pointer; }
-        
-        /* Overlay for Payment */
-        #payment-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:100; align-items:center; justify-content:center; }
-        .modal-content { background: #111; padding: 30px; border-radius: 30px; width: 80%; max-width: 400px; text-align: center; }
+        :root { --accent: #00ff88; --bg: #050505; }
+        body { background: var(--bg); color: white; font-family: -apple-system, sans-serif; text-align: center; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .container { width: 92%; max-width: 400px; padding: 40px 25px; border-radius: 40px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(15px); }
+        .main-input { width: 100%; background: transparent; border: none; color: white; font-size: 4rem; font-weight: 800; text-align: center; outline: none; margin-bottom: 20px; }
+        .email-input { width: 85%; background: #111; border: 1px solid #333; padding: 18px; border-radius: 20px; color: white; text-align: center; font-size: 16px; margin-bottom: 15px; }
+        .btn { background: var(--accent); color: #000; border: none; padding: 18px; border-radius: 20px; font-weight: 800; width: 100%; cursor: pointer; }
+        #setup-ui, #terminal-ui, #success-screen { display: none; }
     </style>
 </head>
 <body>
-
-    <div class="header">
-        <div class="logo">AuraStore</div>
-        <p style="font-size: 12px; opacity: 0.5;">RETAIL MODE</p>
-    </div>
-
-    <div class="grid">
-        <div class="product-card">
-            <div style="font-size: 40px;">👕</div>
-            <span class="name">Premium Tee</span>
-            <span class="price">$25.00</span>
-            <button class="buy-btn" onclick="openPayment('25.00', 'Premium Tee')">BUY</button>
+    <div class="container">
+        <div id="setup-ui">
+            <h2>Setup Receiver</h2>
+            <input type="email" id="merchant-email" class="email-input" placeholder="PayPal Email">
+            <button onclick="saveEmail()" class="btn">Launch Terminal</button>
         </div>
 
-        <div class="product-card">
-            <div style="font-size: 40px;">🧢</div>
-            <span class="name">Aura Cap</span>
-            <span class="price">$15.00</span>
-            <button class="buy-btn" onclick="openPayment('15.00', 'Aura Cap')">BUY</button>
-        </div>
-
-        <div class="product-card">
-            <div style="font-size: 40px;">👟</div>
-            <span class="name">Urban Kicks</span>
-            <span class="price">$85.00</span>
-            <button class="buy-btn" onclick="openPayment('85.00', 'Urban Kicks')">BUY</button>
-        </div>
-
-        <div class="product-card">
-            <div style="font-size: 40px;">🕶️</div>
-            <span class="name">Sunnies</span>
-            <span class="price">$12.00</span>
-            <button class="buy-btn" onclick="openPayment('12.00', 'Sunnies')">BUY</button>
-        </div>
-    </div>
-
-    <div id="payment-modal">
-        <div class="modal-content">
-            <h2 id="item-name">Checkout</h2>
-            <p id="item-price" style="color:var(--accent); font-size: 1.5rem;"></p>
+        <div id="terminal-ui">
+            <input type="number" id="sale-amt" class="main-input" value="1.00" step="0.01">
+            <p id="display-email" style="opacity: 0.5; font-size: 12px; margin-bottom: 20px;"></p>
             <div id="paypal-button-container"></div>
-            <button onclick="closeModal()" style="background:none; border:none; color:white; margin-top:20px; opacity:0.5;">Cancel</button>
+            <button onclick="clearStorage()" style="background:none; border:none; color:grey; margin-top:20px;">Switch Account</button>
+        </div>
+
+        <div id="success-screen">
+            <h1 style="color:var(--accent)">✓ PAID</h1>
+            <button onclick="location.reload()" class="btn">New Sale</button>
         </div>
     </div>
 
     <script>
-        let currentPrice = "0.00";
-        const merchantEmail = localStorage.getItem('aurapay_email') || "your-email@example.com";
-
-        function openPayment(price, name) {
-            currentPrice = price;
-            document.getElementById('item-name').innerText = name;
-            document.getElementById('item-price').innerText = "$" + price;
-            document.getElementById('payment-modal').style.display = 'flex';
-            renderButtons();
+        const savedEmail = localStorage.getItem('aurapay_email');
+        
+        if (savedEmail) {
+            document.getElementById('terminal-ui').style.display = 'block';
+            document.getElementById('display-email').innerText = "Receiver: " + savedEmail;
+            initPaypal(savedEmail);
+        } else {
+            document.getElementById('setup-ui').style.display = 'block';
         }
 
-        function closeModal() {
-            document.getElementById('payment-modal').style.display = 'none';
+        function saveEmail() {
+            const email = document.getElementById('merchant-email').value;
+            if (email.includes('@')) {
+                localStorage.setItem('aurapay_email', email);
+                location.reload();
+            }
         }
 
-        function renderButtons() {
-            document.getElementById('paypal-button-container').innerHTML = "";
+        function clearStorage() {
+            localStorage.removeItem('aurapay_email');
+            location.reload();
+        }
+
+        function initPaypal(email) {
             paypal.Buttons({
                 createOrder: function() {
-                    return fetch('/create-order?to=' + encodeURIComponent(merchantEmail), {
+                    return fetch('/create-order?to=' + encodeURIComponent(email), {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ amount: currentPrice })
+                        body: JSON.stringify({ amount: document.getElementById('sale-amt').value })
                     }).then(res => res.json()).then(data => data.id);
                 },
                 onApprove: function(data) {
                     return fetch('/capture/' + data.orderID, { method: 'POST' })
                     .then(() => {
-                        alert("Purchase Successful!");
-                        closeModal();
+                        document.getElementById('terminal-ui').style.display = 'none';
+                        document.getElementById('success-screen').style.display = 'block';
                     });
                 }
             }).render('#paypal-button-container');
@@ -142,12 +116,13 @@ def index():
 def create_order():
     token = get_access_token()
     payee_email = request.args.get('to')
-    amount = request.json.get('amount', '10.00')
+    amount = request.json.get('amount', '1.00')
     
+    # Logic: The 'payee' field directs the money to the User's email
     payload = {
         "intent": "CAPTURE",
         "purchase_units": [{
-            "amount": {"currency_code": "USD", "value": amount},
+            "amount": {"currency_code": "USD", "value": "{:.2f}".format(float(amount))},
             "payee": {"email_address": payee_email}
         }]
     }
