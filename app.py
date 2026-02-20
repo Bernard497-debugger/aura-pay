@@ -9,7 +9,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# --- DATABASE FIX FOR RENDER ---
+# --- DATABASE CONNECTION FIX ---
+# Render provides 'postgres://', but SQLAlchemy 1.4+ needs 'postgresql://'
 db_url = os.environ.get('DATABASE_URL')
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -18,10 +19,10 @@ app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'sqlite:///aurapay.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- LIVE PAYPAL CONFIG ---
+# --- PAYPAL SETTINGS ---
 PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID')
 PAYPAL_SECRET = os.environ.get('PAYPAL_SECRET')
-PAYPAL_BASE_URL = 'https://api-m.paypal.com' 
+PAYPAL_BASE_URL = 'https://api-m.paypal.com'
 
 # --- SQL MODELS ---
 class UserAccount(db.Model):
@@ -36,28 +37,34 @@ class Transaction(db.Model):
     fee = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
+# Ensure tables are created inside the app context
 with app.app_context():
     db.create_all()
 
 # --- AUTH HELPER ---
 def get_access_token():
-    res = requests.post(f"{PAYPAL_BASE_URL}/v1/oauth2/token",
-                        auth=(PAYPAL_CLIENT_ID, PAYPAL_SECRET),
-                        data={'grant_type': 'client_credentials'})
-    return res.json().get('access_token')
+    try:
+        res = requests.post(f"{PAYPAL_BASE_URL}/v1/oauth2/token",
+                            auth=(PAYPAL_CLIENT_ID, PAYPAL_SECRET),
+                            data={'grant_type': 'client_credentials'}, timeout=10)
+        return res.json().get('access_token')
+    except Exception as e:
+        print(f"Auth Error: {e}")
+        return None
 
-# --- UI TEMPLATE (Includes Live History) ---
+# --- UI (Simplified for Testing) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AuraPay Terminal</title>
     <script src="https://www.paypal.com/sdk/js?client-id={{ client_id }}&currency=USD"></script>
     <style>
         body { background: #050505; color: white; font-family: sans-serif; text-align: center; padding: 20px; }
         .card { background: #111; border: 1px solid #222; padding: 30px; border-radius: 20px; max-width: 400px; margin: 0 auto; }
-        .balance { font-size: 2rem; color: #00ff88; margin-bottom: 20px; }
-        .history { text-align: left; font-size: 12px; margin-top: 20px; color: #888; border-top: 1px solid #222; padding-top: 10px; }
+        .balance { font-size: 2.5rem; color: #00ff88; margin: 20px 0; }
+        .history { text-align: left; font-size: 11px; margin-top: 20px; color: #666; border-top: 1px solid #222; padding-top: 10px; }
     </style>
 </head>
 <body>
@@ -75,10 +82,12 @@ HTML_TEMPLATE = """
     <script>
         paypal.Buttons({
             createOrder: function() {
-                return fetch('/create-order?amt=1.00', { method: 'POST' }).then(res => res.json()).then(data => data.id);
+                return fetch('/create-order?amt=1.00', { method: 'POST' })
+                    .then(res => res.json()).then(data => data.id);
             },
             onApprove: function(data) {
-                return fetch('/capture/' + data.orderID, { method: 'POST' }).then(() => location.reload());
+                return fetch('/capture/' + data.orderID, { method: 'POST' })
+                    .then(() => { alert("Success!"); location.reload(); });
             }
         }).render('#paypal-button-container');
     </script>
@@ -112,9 +121,7 @@ def capture(order_id):
     if data.get('status') == 'COMPLETED':
         val = float(data['purchase_units'][0]['payments']['captures'][0]['amount']['value'])
         clean = val / 1.01
-        
-        # SAVE TO RENDER POSTGRES
-        new_tx = Transaction(tx_id="AP-"+str(uuid.uuid4())[:8], amount=clean, fee=val-clean)
+        new_tx = Transaction(tx_id="AP-"+str(uuid.uuid4())[:8].upper(), amount=clean, fee=val-clean)
         master = UserAccount.query.filter_by(email="master@aurapay").first()
         if not master: master = UserAccount(email="master@aurapay", balance=0.0)
         master.balance += clean
@@ -123,4 +130,6 @@ def capture(order_id):
     return jsonify(data)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    # Use the port assigned by Render
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
