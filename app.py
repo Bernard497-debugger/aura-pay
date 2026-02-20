@@ -7,7 +7,6 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
 app = Flask(__name__)
-# Secure Key for Flask session logic if needed later
 app.secret_key = os.environ.get('SESSION_KEY', 'KHALI_SECURE_777')
 CORS(app)
 
@@ -33,7 +32,7 @@ class Transaction(db.Model):
     fee = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Create tables automatically
+# Auto-create tables on startup
 with app.app_context():
     db.create_all()
 
@@ -55,7 +54,7 @@ def get_access_token():
         print(f"Auth Error: {e}")
         return None
 
-# --- HTML TEMPLATE (UI COMPLETELY UNCHANGED) ---
+# --- UI TEMPLATE ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -73,20 +72,14 @@ HTML_TEMPLATE = """
         .mode-btn { flex: 1; padding: 10px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: white; cursor: pointer; transition: 0.2s; }
         .mode-btn.active { background: var(--accent); color: black; border-color: var(--accent); font-weight: bold; }
         .email-field { width: 100%; padding: 15px; border-radius: 12px; border: 1px solid #333; background: #000; color: white; margin-bottom: 20px; display: none; box-sizing: border-box; }
-        
         .action-label { font-weight: bold; color: var(--accent); margin-bottom: 5px; font-size: 1.2rem; display: block; }
         .fee-label { font-size: 11px; color: #666; margin-bottom: 15px; }
-        
-        #paypal-button-container { min-height: 150px; }
-
         .balance-display { background: #000; padding: 10px; border-radius: 10px; border: 1px dashed #333; margin-bottom: 20px; }
         .history-section { text-align: left; margin-top: 20px; border-top: 1px solid #222; padding-top: 15px; font-family: monospace; }
         .history-item { font-size: 10px; color: #888; margin-bottom: 5px; }
-
+        .disclosure-box { font-size: 9px; color: #333; margin-top: 15px; text-align: justify; line-height: 1.2; border-top: 1px solid #222; padding-top: 10px;}
         .legal-footer { margin-top: 25px; font-size: 11px; color: #444; line-height: 1.4; }
         .legal-link { color: #666; text-decoration: underline; cursor: pointer; }
-        .disclosure-box { font-size: 9px; color: #333; margin-top: 15px; text-align: justify; line-height: 1.2; border-top: 1px solid #222; padding-top: 10px;}
-        
         .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000; padding: 20px; box-sizing: border-box; }
         .modal-content { background: #1a1a1a; padding: 25px; border-radius: 20px; text-align: left; max-width: 400px; margin: 50px auto; border: 1px solid #333; }
         .close-btn { background: var(--accent); color: black; border: none; padding: 10px; border-radius: 10px; width: 100%; font-weight: bold; margin-top: 15px; cursor: pointer; }
@@ -95,26 +88,19 @@ HTML_TEMPLATE = """
 <body>
     <div class="card">
         <h1 style="color: var(--accent); margin-bottom: 5px;">AuraPay</h1>
-        
         <div class="balance-display">
             <span style="font-size: 10px; color: #666;">AVAILABLE BALANCE</span><br>
             <span style="font-size: 1.2rem; font-weight: bold;">${{ "{:.2f}".format(balance) }}</span>
         </div>
-
         <input type="number" id="amount" class="amount-input" value="10.00" step="0.01" oninput="updateActionText()">
-
         <div class="mode-toggle">
             <button id="dep-btn" class="mode-btn active" onclick="setMode('deposit')">Deposit</button>
             <button id="snd-btn" class="mode-btn" onclick="setMode('send')">Send</button>
         </div>
-
         <input type="email" id="recipient-email" class="email-field" placeholder="Recipient PayPal Email">
-
         <span id="dynamic-action-text" class="action-label">Pay $10.00</span>
         <div class="fee-label">+ 1% Institutional Processing Fee</div>
-
         <div id="paypal-button-container"></div>
-
         <div class="history-section">
             <div style="font-size: 10px; font-weight: bold; margin-bottom: 8px;">TRANSACTION HISTORY</div>
             {% for tx in history %}
@@ -124,13 +110,9 @@ HTML_TEMPLATE = """
             <div class="history-item" style="opacity: 0.3;">NO RECENT ACTIVITY</div>
             {% endif %}
         </div>
-
         <div class="disclosure-box">
-            <strong>CUSTODY DISCLOSURE:</strong> AuraPay utilizes a 'Pooled Fund' model. 
-            Deposits are recorded on our digital ledger while fiat liquidity is secured 
-            in our Master Business Account to facilitate instant features.
+            <strong>CUSTODY DISCLOSURE:</strong> AuraPay utilizes a 'Pooled Fund' model. Deposits are recorded on our digital ledger while liquidity is secured in our Master Account.
         </div>
-
         <div class="legal-footer">
             By proceeding, you agree to our <br>
             <span class="legal-link" onclick="openLegal('tos')">Terms of Service</span> & 
@@ -151,14 +133,8 @@ HTML_TEMPLATE = """
         let typingTimer;
 
         const legalTexts = {
-            tos: {
-                title: "Terms of Service",
-                body: "AuraPay provides a technical bridge to PayPal. We do not store financial data or CVVs. Users must ensure recipient details are correct. Transaction fees are governed by PayPal's merchant rates."
-            },
-            refund: {
-                title: "Refund Policy",
-                body: "All captured transactions are final. Refunds must be initiated through the merchant or the PayPal Resolution Center. AuraPay does not hold or manage your funds."
-            }
+            tos: { title: "Terms of Service", body: "AuraPay provides a technical bridge to PayPal. We do not store financial data. Users must ensure recipient details are correct." },
+            refund: { title: "Refund Policy", body: "All captured transactions are final. Refunds must be initiated through the merchant or PayPal Resolution Center." }
         };
 
         function openLegal(type) {
@@ -166,10 +142,7 @@ HTML_TEMPLATE = """
             document.getElementById('modal-body').innerText = legalTexts[type].body;
             document.getElementById('legal-modal').style.display = 'block';
         }
-
-        function closeLegal() {
-            document.getElementById('legal-modal').style.display = 'none';
-        }
+        function closeLegal() { document.getElementById('legal-modal').style.display = 'none'; }
 
         function renderButtons() {
             const currentAmt = document.getElementById('amount').value || "0.01";
@@ -177,23 +150,16 @@ HTML_TEMPLATE = """
             container.innerHTML = ''; 
 
             paypal.Buttons({
-                commit: true, 
                 style: { shape: 'pill', color: 'gold', layout: 'vertical', label: 'pay' },
                 createOrder: function(data, actions) {
                     const email = document.getElementById('recipient-email').value;
                     let url = '/create-order?amt=' + currentAmt;
                     if(mode === 'send' && email) url += '&to=' + encodeURIComponent(email);
-
-                    return fetch(url, { method: 'POST' })
-                        .then(res => res.json())
-                        .then(order => order.id);
+                    return fetch(url, { method: 'POST' }).then(res => res.json()).then(order => order.id);
                 },
                 onApprove: function(data, actions) {
                     return fetch('/capture/' + data.orderID, { method: 'POST' })
-                        .then(res => res.json())
-                        .then(() => {
-                            location.reload();
-                        });
+                        .then(res => res.json()).then(() => { location.reload(); });
                 }
             }).render('#paypal-button-container');
         }
@@ -201,9 +167,7 @@ HTML_TEMPLATE = """
         function updateActionText() {
             const amt = document.getElementById('amount').value || "0.00";
             const label = document.getElementById('dynamic-action-text');
-            const verb = (mode === 'deposit') ? 'Pay' : 'Send';
-            label.innerText = `${verb} $${amt}`;
-
+            label.innerText = (mode === 'deposit' ? 'Pay' : 'Send') + ' $' + amt;
             clearTimeout(typingTimer);
             typingTimer = setTimeout(renderButtons, 500);
         }
@@ -215,24 +179,24 @@ HTML_TEMPLATE = """
             document.getElementById('recipient-email').style.display = (mode === 'send') ? 'block' : 'none';
             updateActionText();
         }
-
         window.onload = renderButtons;
     </script>
 </body>
 </html>
 """
 
+# --- GOOGLE CONSOLE VERIFICATION ROUTE ---
+@app.route('/google5ce0866dc1e9ca22.html')
+def google_verify():
+    return "google-site-verification: google5ce0866dc1e9ca22.html"
+
+# --- CORE ROUTES ---
 @app.route('/')
 def index():
-    # Fetch Master Balance and History from SQL
     master = UserAccount.query.filter_by(email="master@aurapay").first()
     bal = master.balance if master else 0.0
     history = Transaction.query.order_by(Transaction.timestamp.desc()).limit(10).all()
-    
-    return render_template_string(HTML_TEMPLATE, 
-                                client_id=PAYPAL_CLIENT_ID, 
-                                balance=bal, 
-                                history=history)
+    return render_template_string(HTML_TEMPLATE, client_id=PAYPAL_CLIENT_ID, balance=bal, history=history)
 
 @app.route('/create-order', methods=['POST'])
 def create_order():
@@ -266,7 +230,6 @@ def capture(order_id):
         val = float(res_data['purchase_units'][0]['payments']['captures'][0]['amount']['value'])
         clean_amt = val / 1.01
         
-        # --- PERMANENT SQL LOGGING ---
         new_tx = Transaction(
             tx_id="AP-" + str(uuid.uuid4())[:8].upper(),
             amount=clean_amt,
@@ -285,6 +248,5 @@ def capture(order_id):
     return jsonify(res_data)
 
 if __name__ == '__main__':
-    # Render-optimized port binding
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
