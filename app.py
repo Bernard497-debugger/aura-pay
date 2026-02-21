@@ -30,7 +30,6 @@ class Transaction(db.Model):
     user_email = db.Column(db.String(120))
     tx_id = db.Column(db.String(50), unique=True)
     amount = db.Column(db.Float)
-    fee = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 with app.app_context():
@@ -49,46 +48,49 @@ def get_access_token():
         return res.json().get('access_token')
     except: return None
 
-# --- UI TEMPLATE (WITH VISIBLE LEGAL LINKS) ---
+# --- UI TEMPLATE (FIXED LEGAL VISIBILITY) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AuraPay Terminal</title>
     <script src="https://www.paypal.com/sdk/js?client-id={{ client_id }}&currency=USD"></script>
     <style>
         :root { --accent: #00ff88; --bg: #050505; }
-        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; padding: 20px; text-align: center; }
-        .card { background: #111; border: 1px solid #222; padding: 30px; border-radius: 30px; max-width: 400px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .amount-input { background: transparent; border: none; color: white; font-size: 3.5rem; width: 100%; text-align: center; outline: none; margin: 10px 0; font-weight: 800; }
-        .mode-toggle { display: flex; gap: 10px; margin-bottom: 20px; }
-        .mode-btn { flex: 1; padding: 10px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: white; cursor: pointer; transition: 0.2s; }
-        .mode-btn.active { background: var(--accent); color: black; border-color: var(--accent); font-weight: bold; }
-        .email-field { width: 100%; padding: 15px; border-radius: 12px; border: 1px solid #333; background: #000; color: white; margin-bottom: 20px; display: none; box-sizing: border-box; }
-        .action-label { font-weight: bold; color: var(--accent); margin-bottom: 5px; font-size: 1.2rem; display: block; }
-        .balance-display { background: #000; padding: 10px; border-radius: 10px; border: 1px dashed #333; margin-bottom: 20px; }
-        .history-section { text-align: left; margin-top: 20px; border-top: 1px solid #222; padding-top: 15px; font-family: monospace; }
-        .history-item { font-size: 10px; color: #888; margin-bottom: 5px; }
+        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; padding: 10px; text-align: center; }
+        .card { background: #111; border: 1px solid #222; padding: 25px; border-radius: 30px; max-width: 400px; margin: 20px auto; }
+        .balance-display { background: #000; padding: 15px; border-radius: 15px; border: 1px dashed #333; margin-bottom: 20px; }
+        .amount-input { background: transparent; border: none; color: white; font-size: 3rem; width: 100%; text-align: center; outline: none; font-weight: 800; }
+        .mode-toggle { display: flex; gap: 10px; margin: 15px 0; }
+        .mode-btn { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: white; cursor: pointer; }
+        .mode-btn.active { background: var(--accent); color: black; font-weight: bold; }
+        .email-field { width: 100%; padding: 15px; border-radius: 12px; border: 1px solid #333; background: #000; color: white; margin-bottom: 15px; display: none; box-sizing: border-box; }
+        .action-label { font-weight: bold; color: var(--accent); font-size: 1.1rem; }
+        .history-section { text-align: left; margin-top: 20px; border-top: 1px solid #222; padding-top: 15px; }
+        .history-item { font-size: 10px; color: #666; margin-bottom: 5px; font-family: monospace; }
         
-        /* LEGAL SECTION STYLES */
-        .legal-footer { margin-top: 25px; font-size: 11px; color: #444; line-height: 1.6; border-top: 1px solid #222; padding-top: 15px; }
-        .legal-link { color: #666; text-decoration: underline; cursor: pointer; margin: 0 5px; }
-        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:1000; padding: 20px; box-sizing: border-box; }
-        .modal-content { background: #1a1a1a; padding: 25px; border-radius: 20px; text-align: left; max-width: 400px; margin: 40px auto; border: 1px solid #333; }
-        .close-btn { background: var(--accent); color: black; border: none; padding: 12px; border-radius: 10px; width: 100%; font-weight: bold; margin-top: 20px; cursor: pointer; }
+        /* LEGAL SECTION */
+        .disclosure-box { font-size: 10px; color: #444; margin-top: 20px; text-align: center; padding: 10px; border-top: 1px solid #222; }
+        .legal-links { margin-top: 10px; display: block; }
+        .legal-link { color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 11px; margin: 0 10px; opacity: 0.8; }
+        
+        /* MODAL */
+        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000; }
+        .modal-content { background: #111; padding: 30px; border-radius: 20px; text-align: left; max-width: 350px; margin: 100px auto; border: 1px solid #333; }
+        .close-btn { background: var(--accent); color: black; border: none; padding: 10px; border-radius: 10px; width: 100%; font-weight: bold; margin-top: 20px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h1 style="color: var(--accent); margin-bottom: 5px;">AuraPay</h1>
+        <h1 style="color: var(--accent);">AuraPay</h1>
         <div class="balance-display">
-            <span style="font-size: 10px; color: #666;">PERSONAL BALANCE</span><br>
-            <span style="font-size: 1.2rem; font-weight: bold;">${{ "{:.2f}".format(balance) }}</span>
+            <span style="font-size: 10px; color: #666;">PERSONAL LEDGER</span><br>
+            <span style="font-size: 1.5rem; font-weight: bold;">${{ "{:.2f}".format(balance) }}</span>
         </div>
         
-        <input type="number" id="amount" class="amount-input" value="10.00" step="0.01" oninput="updateActionText()">
+        <input type="number" id="amount" class="amount-input" value="10.00" oninput="updateActionText()">
         
         <div class="mode-toggle">
             <button id="dep-btn" class="mode-btn active" onclick="setMode('deposit')">Deposit</button>
@@ -96,42 +98,39 @@ HTML_TEMPLATE = """
         </div>
         
         <input type="email" id="recipient-email" class="email-field" placeholder="Recipient PayPal Email">
-        <span id="dynamic-action-text" class="action-label">Pay $10.00</span>
+        <p id="dynamic-action-text" class="action-label">Pay $10.00</p>
         
         <div id="paypal-button-container"></div>
         
         <div class="history-section">
-            <div style="font-size: 10px; font-weight: bold; margin-bottom: 8px;">MY ACTIVITY</div>
+            <div style="font-size: 10px; font-weight: bold; color: #444; margin-bottom: 8px;">MY TRANSACTION HISTORY</div>
             {% for tx in history %}
             <div class="history-item">[{{ tx.timestamp.strftime('%H:%M') }}] {{ tx.tx_id }} | +${{ "%.2f"|format(tx.amount) }}</div>
             {% endfor %}
-            {% if not history %}
-            <div class="history-item" style="opacity: 0.3;">NO RECENT ACTIVITY</div>
-            {% endif %}
         </div>
 
-        <div class="legal-footer">
-            By using AuraPay, you agree to our <br>
-            <span class="legal-link" onclick="openLegal('tos')">Terms of Service</span> & 
-            <span class="legal-link" onclick="openLegal('refund')">Refund Policy</span>
+        <div class="disclosure-box">
+            <strong>CUSTODY DISCLOSURE:</strong> Funds are secured in our pooled Master Account.
+            <div class="legal-links">
+                <span class="legal-link" onclick="openLegal('tos')">Terms of Service</span>
+                <span class="legal-link" onclick="openLegal('refund')">Refund Policy</span>
+            </div>
         </div>
     </div>
 
     <div id="legal-modal" class="modal">
         <div class="modal-content">
             <h2 id="modal-title" style="color: var(--accent); margin-top: 0;"></h2>
-            <div id="modal-body" style="font-size: 13px; line-height: 1.6; color: #bbb; max-height: 300px; overflow-y: auto;"></div>
-            <button class="close-btn" onclick="closeLegal()">CLOSE</button>
+            <div id="modal-body" style="font-size: 13px; line-height: 1.5; color: #888;"></div>
+            <button class="close-btn" onclick="closeLegal()">I UNDERSTAND</button>
         </div>
     </div>
 
     <script>
         let mode = 'deposit';
-        let typingTimer;
-
         const legalTexts = {
-            tos: { title: "Terms of Service", body: "AuraPay is a digital ledger service. We act as a bridge for PayPal transactions. You are responsible for providing correct recipient emails. Deposits are credited to your local wallet after successful PayPal capture." },
-            refund: { title: "Refund Policy", body: "Once a transaction is completed via PayPal, it is final. Any disputes must be handled via the PayPal Resolution Center. AuraPay does not hold funds for reversal once they have been processed." }
+            tos: { title: "Terms of Service", body: "AuraPay acts as a digital ledger for PayPal deposits. Users are responsible for recipient accuracy. All deposits are final once captured." },
+            refund: { title: "Refund Policy", body: "Refunds are processed solely through PayPal's resolution center. AuraPay does not hold reversal rights for completed digital captures." }
         };
 
         function openLegal(type) {
@@ -146,7 +145,6 @@ HTML_TEMPLATE = """
             const container = document.getElementById('paypal-button-container');
             container.innerHTML = ''; 
             paypal.Buttons({
-                style: { shape: 'pill', color: 'gold', layout: 'vertical', label: 'pay' },
                 createOrder: function(data, actions) {
                     const email = document.getElementById('recipient-email').value;
                     let url = '/create-order?amt=' + currentAmt;
@@ -163,8 +161,7 @@ HTML_TEMPLATE = """
         function updateActionText() {
             const amt = document.getElementById('amount').value || "0.00";
             document.getElementById('dynamic-action-text').innerText = (mode === 'deposit' ? 'Pay' : 'Send') + ' $' + amt;
-            clearTimeout(typingTimer);
-            typingTimer = setTimeout(renderButtons, 500);
+            renderButtons();
         }
 
         function setMode(newMode) {
@@ -180,14 +177,14 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# --- HIDDEN LEDGER ROUTES ---
+# --- LOGIC ROUTES (NO CHANGES NEEDED TO LOGIC) ---
 @app.route('/')
 def index():
     user_email = session.get('active_user')
     if user_email:
         user = UserAccount.query.filter_by(email=user_email).first()
         bal = user.balance if user else 0.0
-        history = Transaction.query.filter_by(user_email=user_email).order_by(Transaction.timestamp.desc()).limit(10).all()
+        history = Transaction.query.filter_by(user_email=user_email).order_by(Transaction.timestamp.desc()).limit(5).all()
     else:
         bal = 0.0
         history = []
