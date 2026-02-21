@@ -7,7 +7,6 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
 app = Flask(__name__)
-# The secret key makes the user's session untamperable
 app.secret_key = os.environ.get('SESSION_KEY', 'KHALI_SECURE_777_AURA')
 CORS(app)
 
@@ -28,7 +27,7 @@ class UserAccount(db.Model):
 
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_email = db.Column(db.String(120)) # Hidden filter field
+    user_email = db.Column(db.String(120))
     tx_id = db.Column(db.String(50), unique=True)
     amount = db.Column(db.Float)
     fee = db.Column(db.Float)
@@ -50,7 +49,7 @@ def get_access_token():
         return res.json().get('access_token')
     except: return None
 
-# --- UI TEMPLATE (As requested: NO UI EDITS) ---
+# --- UI TEMPLATE (WITH VISIBLE LEGAL LINKS) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -69,31 +68,40 @@ HTML_TEMPLATE = """
         .mode-btn.active { background: var(--accent); color: black; border-color: var(--accent); font-weight: bold; }
         .email-field { width: 100%; padding: 15px; border-radius: 12px; border: 1px solid #333; background: #000; color: white; margin-bottom: 20px; display: none; box-sizing: border-box; }
         .action-label { font-weight: bold; color: var(--accent); margin-bottom: 5px; font-size: 1.2rem; display: block; }
-        .fee-label { font-size: 11px; color: #666; margin-bottom: 15px; }
         .balance-display { background: #000; padding: 10px; border-radius: 10px; border: 1px dashed #333; margin-bottom: 20px; }
         .history-section { text-align: left; margin-top: 20px; border-top: 1px solid #222; padding-top: 15px; font-family: monospace; }
         .history-item { font-size: 10px; color: #888; margin-bottom: 5px; }
-        .disclosure-box { font-size: 9px; color: #333; margin-top: 15px; text-align: justify; line-height: 1.2; border-top: 1px solid #222; padding-top: 10px;}
+        
+        /* LEGAL SECTION STYLES */
+        .legal-footer { margin-top: 25px; font-size: 11px; color: #444; line-height: 1.6; border-top: 1px solid #222; padding-top: 15px; }
+        .legal-link { color: #666; text-decoration: underline; cursor: pointer; margin: 0 5px; }
+        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:1000; padding: 20px; box-sizing: border-box; }
+        .modal-content { background: #1a1a1a; padding: 25px; border-radius: 20px; text-align: left; max-width: 400px; margin: 40px auto; border: 1px solid #333; }
+        .close-btn { background: var(--accent); color: black; border: none; padding: 12px; border-radius: 10px; width: 100%; font-weight: bold; margin-top: 20px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="card">
         <h1 style="color: var(--accent); margin-bottom: 5px;">AuraPay</h1>
         <div class="balance-display">
-            <span style="font-size: 10px; color: #666;">AVAILABLE BALANCE</span><br>
+            <span style="font-size: 10px; color: #666;">PERSONAL BALANCE</span><br>
             <span style="font-size: 1.2rem; font-weight: bold;">${{ "{:.2f}".format(balance) }}</span>
         </div>
+        
         <input type="number" id="amount" class="amount-input" value="10.00" step="0.01" oninput="updateActionText()">
+        
         <div class="mode-toggle">
             <button id="dep-btn" class="mode-btn active" onclick="setMode('deposit')">Deposit</button>
             <button id="snd-btn" class="mode-btn" onclick="setMode('send')">Send</button>
         </div>
+        
         <input type="email" id="recipient-email" class="email-field" placeholder="Recipient PayPal Email">
         <span id="dynamic-action-text" class="action-label">Pay $10.00</span>
-        <div class="fee-label">+ 1% Institutional Processing Fee</div>
+        
         <div id="paypal-button-container"></div>
+        
         <div class="history-section">
-            <div style="font-size: 10px; font-weight: bold; margin-bottom: 8px;">TRANSACTION HISTORY</div>
+            <div style="font-size: 10px; font-weight: bold; margin-bottom: 8px;">MY ACTIVITY</div>
             {% for tx in history %}
             <div class="history-item">[{{ tx.timestamp.strftime('%H:%M') }}] {{ tx.tx_id }} | +${{ "%.2f"|format(tx.amount) }}</div>
             {% endfor %}
@@ -101,13 +109,38 @@ HTML_TEMPLATE = """
             <div class="history-item" style="opacity: 0.3;">NO RECENT ACTIVITY</div>
             {% endif %}
         </div>
-        <div class="disclosure-box">
-            <strong>CUSTODY DISCLOSURE:</strong> AuraPay utilizes a 'Pooled Fund' model. Deposits are recorded on our digital ledger while liquidity is secured in our Master Account.
+
+        <div class="legal-footer">
+            By using AuraPay, you agree to our <br>
+            <span class="legal-link" onclick="openLegal('tos')">Terms of Service</span> & 
+            <span class="legal-link" onclick="openLegal('refund')">Refund Policy</span>
         </div>
     </div>
+
+    <div id="legal-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title" style="color: var(--accent); margin-top: 0;"></h2>
+            <div id="modal-body" style="font-size: 13px; line-height: 1.6; color: #bbb; max-height: 300px; overflow-y: auto;"></div>
+            <button class="close-btn" onclick="closeLegal()">CLOSE</button>
+        </div>
+    </div>
+
     <script>
         let mode = 'deposit';
         let typingTimer;
+
+        const legalTexts = {
+            tos: { title: "Terms of Service", body: "AuraPay is a digital ledger service. We act as a bridge for PayPal transactions. You are responsible for providing correct recipient emails. Deposits are credited to your local wallet after successful PayPal capture." },
+            refund: { title: "Refund Policy", body: "Once a transaction is completed via PayPal, it is final. Any disputes must be handled via the PayPal Resolution Center. AuraPay does not hold funds for reversal once they have been processed." }
+        };
+
+        function openLegal(type) {
+            document.getElementById('modal-title').innerText = legalTexts[type].title;
+            document.getElementById('modal-body').innerText = legalTexts[type].body;
+            document.getElementById('legal-modal').style.display = 'block';
+        }
+        function closeLegal() { document.getElementById('legal-modal').style.display = 'none'; }
+
         function renderButtons() {
             const currentAmt = document.getElementById('amount').value || "0.01";
             const container = document.getElementById('paypal-button-container');
@@ -126,12 +159,14 @@ HTML_TEMPLATE = """
                 }
             }).render('#paypal-button-container');
         }
+
         function updateActionText() {
             const amt = document.getElementById('amount').value || "0.00";
             document.getElementById('dynamic-action-text').innerText = (mode === 'deposit' ? 'Pay' : 'Send') + ' $' + amt;
             clearTimeout(typingTimer);
             typingTimer = setTimeout(renderButtons, 500);
         }
+
         function setMode(newMode) {
             mode = newMode;
             document.getElementById('dep-btn').classList.toggle('active', mode === 'deposit');
@@ -145,22 +180,17 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# --- LOGIC TO HIDE LEDGER ---
+# --- HIDDEN LEDGER ROUTES ---
 @app.route('/')
 def index():
-    # We check the browser session for an active user email
     user_email = session.get('active_user')
-    
     if user_email:
-        # Show ONLY this user's balance and history
         user = UserAccount.query.filter_by(email=user_email).first()
         bal = user.balance if user else 0.0
         history = Transaction.query.filter_by(user_email=user_email).order_by(Transaction.timestamp.desc()).limit(10).all()
     else:
-        # If no session, show $0.00. The Master Ledger stays secret.
         bal = 0.0
         history = []
-        
     return render_template_string(HTML_TEMPLATE, client_id=PAYPAL_CLIENT_ID, balance=bal, history=history)
 
 @app.route('/create-order', methods=['POST'])
@@ -168,43 +198,29 @@ def create_order():
     token = get_access_token()
     amt = float(request.args.get('amt', '0.01'))
     total = "{:.2f}".format(amt * 1.01)
-    
     payee_email = request.args.get('to')
-    # Save the email in the session so they see their own balance after capture
-    if payee_email:
-        session['active_user'] = payee_email
-
+    if payee_email: session['active_user'] = payee_email
     payload = {"intent": "CAPTURE", "purchase_units": [{"amount": {"currency_code": "USD", "value": total}}]}
-    if payee_email:
-        payload["purchase_units"][0]["payee"] = {"email_address": payee_email}
-    
-    r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders", json=payload, 
-                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    if payee_email: payload["purchase_units"][0]["payee"] = {"email_address": payee_email}
+    r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders", json=payload, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     return jsonify(r.json())
 
 @app.route('/capture/<order_id>', methods=['POST'])
 def capture(order_id):
     token = get_access_token()
-    r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders/{order_id}/capture", 
-                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    
+    r = requests.post(f"{PAYPAL_BASE_URL}/v2/checkout/orders/{order_id}/capture", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     res_data = r.json()
     if res_data.get('status') == 'COMPLETED':
         val = float(res_data['purchase_units'][0]['payments']['captures'][0]['amount']['value'])
         clean_amt = val / 1.01
         user_email = session.get('active_user', 'anonymous')
-        
-        # 1. Update Personal Ledger
         user = UserAccount.query.filter_by(email=user_email).first()
         if not user:
             user = UserAccount(email=user_email, balance=0.0)
             db.session.add(user)
         user.balance += clean_amt
-        
-        # 2. Record Transaction for that user
         db.session.add(Transaction(user_email=user_email, tx_id="AP-"+str(uuid.uuid4())[:8].upper(), amount=clean_amt))
         db.session.commit()
-        
     return jsonify(res_data)
 
 if __name__ == '__main__':
